@@ -80,10 +80,3 @@ func (d *discountService) ValidateDiscountCode(ctx context.Context, code string,
 	}
 	return false, errors.New("invalid or expired discount code")
 }
-
-func (p *models.PaymentInfo) BankNameOrDefault() string {
-	if p.BankName != nil {
-		return *p.BankName
-	}
-	return ""
-}
