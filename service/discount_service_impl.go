@@ -49,15 +49,32 @@ func NewDiscountService() DiscountService {
 	return &discountService{
 		brandDiscounts: []brandDiscount{
 			{Name: "PUMA 40%", Brand: "puma", Percent: 0.40},
+			{Name: "Nike 30%", Brand: "nike", Percent: 0.30},
 		},
 		categoryDiscounts: []categoryDiscount{
 			{Name: "T-Shirts 10%", Category: "t-shirts", Percent: 0.10},
+			{Name: "Jeans 20%", Category: "jeans", Percent: 0.20},
 		},
 		couponDiscounts: []couponDiscount{
-			{Code: "SUPER69", Name: "SUPER69", Percent: 0.69},
+			{
+				Code:              "SUPER69",
+				Name:              "SUPER69",
+				Percent:           0.69,
+				ExcludedBrands:    []string{"Nike"},
+				AllowedCategories: []string{"t-shirts"},
+				MinCustomerTier:   "gold",
+			},
+			{
+				Code:              "SUMMER50",
+				Name:              "SUMMER50",
+				Percent:           0.50,
+				AllowedCategories: []string{"shorts", "t-shirts"},
+				MinCustomerTier:   "silver",
+			},
 		},
 		bankOffers: []bankOffer{
 			{Name: "ICICI Bank 10%", Bank: "ICICI", Percent: 0.10},
+			{Name: "HDFC Debit 5%", Bank: "HDFC", Percent: 0.05},
 		},
 	}
 }
