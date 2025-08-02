@@ -4,6 +4,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+// Product represents an item in the store with its details.
 type Product struct {
 	ID           string          `json:"id"`
 	Brand        string          `json:"brand"`

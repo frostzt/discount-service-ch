@@ -3,20 +3,61 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/frostzt/discount/models"
 	"github.com/shopspring/decimal"
 )
 
+type brandDiscount struct {
+	Name    string
+	Brand   string
+	Percent float64
+}
+
+type categoryDiscount struct {
+	Name     string
+	Category string
+	Percent  float64
+}
+
+type bankOffer struct {
+	Name    string
+	Bank    string
+	Percent float64
+}
+
+type couponDiscount struct {
+	Code              string
+	Name              string
+	Percent           float64
+	AllowedBrands     []string
+	ExcludedBrands    []string
+	AllowedCategories []string
+	MinCustomerTier   string
+}
+
 type discountService struct {
-	validCodes map[string]struct{}
+	brandDiscounts    []brandDiscount
+	categoryDiscounts []categoryDiscount
+	couponDiscounts   []couponDiscount
+	bankOffers        []bankOffer
 }
 
 func NewDiscountService() DiscountService {
 	return &discountService{
-		validCodes: map[string]struct{}{
-			"SUPER69": {},
+		brandDiscounts: []brandDiscount{
+			{Name: "PUMA 40%", Brand: "puma", Percent: 0.40},
+		},
+		categoryDiscounts: []categoryDiscount{
+			{Name: "T-Shirts 10%", Category: "t-shirts", Percent: 0.10},
+		},
+		couponDiscounts: []couponDiscount{
+			{Code: "SUPER69", Name: "SUPER69", Percent: 0.69},
+		},
+		bankOffers: []bankOffer{
+			{Name: "ICICI Bank 10%", Bank: "ICICI", Percent: 0.10},
 		},
 	}
 }
@@ -35,17 +76,21 @@ func (d *discountService) CalculateCartDiscounts(ctx context.Context,
 		price := base
 
 		// Brand discount
-		if strings.ToLower(item.Product.Brand) == "puma" {
-			discount := price.Mul(decimal.NewFromFloat(0.4))
-			price = price.Sub(discount)
-			applied["PUMA 40%"] = applied["PUMA 40%"].Add(discount)
+		for _, bd := range d.brandDiscounts {
+			if strings.EqualFold(item.Product.Brand, bd.Brand) {
+				discount := price.Mul(decimal.NewFromFloat(bd.Percent))
+				price = price.Sub(discount)
+				applied[bd.Name] = applied[bd.Name].Add(discount)
+			}
 		}
 
 		// Category discount
-		if strings.ToLower(item.Product.Category) == "t-shirts" {
-			discount := price.Mul(decimal.NewFromFloat(0.1))
-			price = price.Sub(discount)
-			applied["T-Shirts 10%"] = applied["T-Shirts 10%"].Add(discount)
+		for _, cd := range d.categoryDiscounts {
+			if strings.EqualFold(item.Product.Category, cd.Category) {
+				discount := price.Mul(decimal.NewFromFloat(cd.Percent))
+				price = price.Sub(discount)
+				applied[cd.Name] = applied[cd.Name].Add(discount)
+			}
 		}
 
 		originalPrice = originalPrice.Add(base)
@@ -53,19 +98,23 @@ func (d *discountService) CalculateCartDiscounts(ctx context.Context,
 	}
 
 	// Coupon code
-	if _, ok := d.validCodes["SUPER69"]; ok {
-		discount := finalPrice.Mul(decimal.NewFromFloat(0.69))
+	for _, coupon := range d.couponDiscounts {
+		// Optional: check if code is allowed based on cart, etc.
+		discount := finalPrice.Mul(decimal.NewFromFloat(coupon.Percent))
 		finalPrice = finalPrice.Sub(discount)
-		applied["SUPER69"] = discount
+		applied[coupon.Name] = discount
 	}
 
 	// Bank offer
-	if paymentInfo != nil && strings.EqualFold(paymentInfo.BankNameOrDefault(), "ICICI") {
-		discount := finalPrice.Mul(decimal.NewFromFloat(0.10))
-		finalPrice = finalPrice.Sub(discount)
-		applied["ICICI Bank 10%"] = discount
+	if paymentInfo != nil {
+		for _, offer := range d.bankOffers {
+			if strings.EqualFold(paymentInfo.BankNameOrDefault(), offer.Bank) {
+				discount := finalPrice.Mul(decimal.NewFromFloat(offer.Percent))
+				finalPrice = finalPrice.Sub(discount)
+				applied[offer.Name] = discount
+			}
+		}
 	}
-
 	return &models.DiscountedPrice{
 		OriginalPrice:    originalPrice,
 		FinalPrice:       finalPrice,
@@ -74,9 +123,53 @@ func (d *discountService) CalculateCartDiscounts(ctx context.Context,
 	}, nil
 }
 
-func (d *discountService) ValidateDiscountCode(ctx context.Context, code string, cartItems []models.CartItem, customer models.CustomerProfile) (bool, error) {
-	if _, ok := d.validCodes[strings.ToUpper(code)]; ok {
-		return true, nil
+func (d *discountService) ValidateDiscountCode(
+	ctx context.Context,
+	code string,
+	cartItems []models.CartItem,
+	customer models.CustomerProfile,
+) (bool, error) {
+	var matched *couponDiscount
+	for _, coupon := range d.couponDiscounts {
+		if strings.EqualFold(coupon.Code, code) {
+			matched = &coupon
+			break
+		}
 	}
-	return false, errors.New("invalid or expired discount code")
+	if matched == nil {
+		return false, errors.New("invalid discount code")
+	}
+
+	for _, item := range cartItems {
+		brand := strings.ToLower(item.Product.Brand)
+		category := strings.ToLower(item.Product.Category)
+
+		// Excluded brand
+		for _, excl := range matched.ExcludedBrands {
+			if brand == strings.ToLower(excl) {
+				return false, fmt.Errorf("discount not valid for brand %s", item.Product.Brand)
+			}
+		}
+
+		// Allowed category
+		if len(matched.AllowedCategories) > 0 {
+			ok := false
+			for _, allowed := range matched.AllowedCategories {
+				if category == strings.ToLower(allowed) {
+					ok = true
+					break
+				}
+			}
+			if !ok {
+				return false, fmt.Errorf("discount not valid for category %s", item.Product.Category)
+			}
+		}
+	}
+
+	// Optional: check customer tier
+	if matched.MinCustomerTier != "" && !strings.EqualFold(customer.Tier, matched.MinCustomerTier) {
+		return false, fmt.Errorf("discount requires customer tier %s", matched.MinCustomerTier)
+	}
+
+	return true, nil
 }
